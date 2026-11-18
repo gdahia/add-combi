@@ -9,6 +9,7 @@ public import Mathlib.Probability.IdentDistrib
 
 import AddCombi.Mathlib.Probability.IdentDistrib
 import AddCombi.Mathlib.Probability.Independence.Basic
+import Mathlib.Algebra.Order.Chebyshev
 import Mathlib.Analysis.Convex.Integral
 import Mathlib.Analysis.Convex.SpecificFunctions.Pow
 import Mathlib.Data.Nat.Choose.Multinomial
@@ -551,3 +552,69 @@ theorem marcinkiewicz_zygmund_two_mul [CompleteSpace E] (iIndepFun_X : iIndepFun
   have h₂ : ((2 * m : ℝ≥0) : ℝ) / 2 = m := by push_cast; ring
   rw [h₂] at this
   simpa only [h₁, Real.rpow_natCast] using this
+
+section piFinset
+variable {G : Type*} {A : Finset G}
+
+/-- Integrating against the uniform product measure on `A ^^ n` is averaging over `A ^^ n`. -/
+private lemma integral_pi_uniformOn [Finite G] [MeasurableSpace G] [DiscreteMeasurableSpace G]
+    {E : Type*} [NormedAddCommGroup E] [NormedSpace ℝ E] [CompleteSpace E] (hA : A.Nonempty)
+    (g : (Fin n → G) → E) :
+    ∫ ω, g ω ∂Measure.pi (fun _ ↦ uniformOn (A : Set G)) = (#A ^ n : ℝ)⁻¹ • ∑ a ∈ A ^^ n, g a := by
+  classical
+  have := Fintype.ofFinite G
+  have := isProbabilityMeasure_uniformOn A.finite_toSet (coe_nonempty.2 hA)
+  have key ω : (Measure.pi fun _ : Fin n ↦ uniformOn (A : Set G)).real {ω} =
+      if ω ∈ A ^^ n then ((#A : ℝ) ^ n)⁻¹ else 0 := by
+    rw [measureReal_def, Measure.pi_singleton]
+    simp_rw [← coe_singleton, uniformOn_apply_finset]
+    rw [ENNReal.toReal_prod]
+    split_ifs with h
+    · simp [Fintype.mem_piFinset.1 h]
+    · obtain ⟨x, hx⟩ := not_forall.1 (Fintype.mem_piFinset.not.1 h)
+      exact prod_eq_zero (mem_univ x) (by simp [hx])
+  calc
+    _ = ∑ ω, (Measure.pi fun _ : Fin n ↦ uniformOn (A : Set G)).real {ω} • g ω :=
+      integral_fintype .of_finite
+    _ = ∑ ω ∈ A ^^ n, (Measure.pi fun _ : Fin n ↦ uniformOn (A : Set G)).real {ω} • g ω :=
+      (sum_subset (subset_univ _) fun ω _ hω ↦ by simp [key, hω]).symm
+    _ = _ := by rw [smul_sum]; exact sum_congr rfl fun ω hω ↦ by simp [key, hω]
+
+lemma marcinkiewiczZygmundConst_two_mul_of_ne_zero (hm : m ≠ 0) :
+    marcinkiewiczZygmundConst (2 * m) = (4 * m) ^ m := by
+  have h : ((2 * m : ℝ≥0) : ℝ) / 2 = m := by push_cast; ring
+  rw [marcinkiewiczZygmundConst, marcinkiewiczZygmundSymmConst_two_mul, h,
+    max_eq_left (by exact_mod_cast Nat.one_le_iff_ne_zero.2 hm), ← two_mul,
+    show (2 * m : ℝ) = (2 * m : ℕ) by push_cast; rfl, Real.rpow_natCast, mul_pow, pow_mul]
+  norm_num
+
+/-- The **Marcinkiewicz-Zygmund inequality** for sums over `A ^^ n`. -/
+lemma marcinkiewicz_zygmund_piFinset [Finite G] (hm : m ≠ 0) (f : G → ℂ) (hf : ∑ a ∈ A, f a = 0) :
+    ∑ a ∈ A ^^ n, ‖∑ i, f (a i)‖ ^ (2 * m) ≤
+      (4 * m) ^ m * n ^ (m - 1) * ∑ a ∈ A ^^ n, ∑ i, ‖f (a i)‖ ^ (2 * m) := by
+  obtain rfl | hA := A.eq_empty_or_nonempty
+  · cases n <;> simp [hm]
+  classical
+  let _ : MeasurableSpace G := ⊤
+  have : DiscreteMeasurableSpace G := ⟨fun _ ↦ trivial⟩
+  have := isProbabilityMeasure_uniformOn A.finite_toSet (coe_nonempty.2 hA)
+  have h := marcinkiewicz_zygmund_two_mul (A := univ) (m := m)
+    («μ» := Measure.pi fun _ : Fin n ↦ uniformOn (A : Set G))
+    (iIndepFun_pi (X := fun _ ↦ f) fun _ ↦ Measurable.of_discrete.aemeasurable) (fun i ↦ ?_)
+    fun i _ ↦ .of_discrete
+  swap
+  · rw [integral_pi_uniformOn hA, Fintype.sum_piFinset_apply, hf, smul_zero, smul_zero]
+  simp only [integral_pi_uniformOn hA, marcinkiewiczZygmundConst_two_mul_of_ne_zero hm,
+    smul_eq_mul, ← mul_assoc, mul_comm _ ((#A : ℝ) ^ n)⁻¹] at h
+  rw [mul_assoc, mul_le_mul_iff_right₀ (by positivity)] at h
+  refine h.trans ?_
+  rw [mul_assoc]
+  gcongr
+  rw [mul_sum]
+  gcongr with a
+  obtain _ | m := m
+  · simp at hm
+  simpa only [Finset.card_fin, pow_mul, add_tsub_cancel_right] using
+    pow_sum_le_card_mul_sum_pow (f := fun i ↦ ‖f (a i)‖ ^ 2) (s := univ) (fun i _ ↦ by positivity) m
+
+end piFinset
